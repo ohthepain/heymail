@@ -1,7 +1,18 @@
 import { useKeycloak } from "@react-keycloak/web";
+import { useEffect } from "react";
 
 const App = () => {
   const { keycloak, initialized } = useKeycloak();
+
+  useEffect(() => {
+    console.log("Keycloak state after login:", {
+      initialized,
+      authenticated: keycloak.authenticated,
+      token: keycloak.token,
+      idToken: keycloak.idToken,
+      parsedToken: keycloak.tokenParsed,
+    });
+  }, [initialized, keycloak]);
 
   if (!initialized) {
     return <div>Loading...</div>;
