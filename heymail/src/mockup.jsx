@@ -1,114 +1,181 @@
 import React, { useState, useEffect } from "react";
-import { useKeycloak } from "@react-keycloak/web";
-import type { Email } from "./types/email";
-import { fetchEmails, sendEmail, summarizeEmail, draftReply } from "./services/heyserv";
 
-const App: React.FC = () => {
-  const { keycloak, initialized } = useKeycloak();
-  const [emails, setEmails] = useState<Email[]>([]);
-  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+// Main App component for the AI-based Gmail client
+const App = () => {
+  // State to manage the currently selected email for viewing
+  const [selectedEmail, setSelectedEmail] = useState(null);
+  // State to store mock email data
+  const [emails, setEmails] = useState([]);
+  // State to hold the AI-generated response (summary or draft)
+  const [aiResponse, setAiResponse] = useState("");
+  // State to indicate if an AI operation is in progress
+  const [isLoading, setIsLoading] = useState(false);
+  // State to control whether the compose email view is active
   const [composeMode, setComposeMode] = useState(false);
+  // States for the compose email form fields
   const [composeTo, setComposeTo] = useState("");
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
-  const [aiResponse, setAiResponse] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  // State for displaying messages to the user (e.g., "Email sent!")
   const [message, setMessage] = useState("");
 
+  // Effect to initialize mock email data when the component mounts
   useEffect(() => {
-    if (keycloak.authenticated) {
-      fetchEmails(keycloak.token!)
-        .then(setEmails)
-        .catch((err: unknown) =>
-          setMessage("Failed to fetch emails: " + (err instanceof Error ? err.message : String(err)))
-        );
-    }
-  }, [keycloak.authenticated, keycloak.token]);
+    // Generate some mock email data
+    const mockEmails = [
+      {
+        id: "e1",
+        sender: "support@example.com",
+        subject: "Your recent order confirmation",
+        body: "Dear Customer,\n\nThank you for your recent purchase! Your order #12345 has been confirmed and will be shipped within 2-3 business days. You can track your order at [link to tracking].\n\nBest regards,\nThe Example Team",
+        date: "2025-07-20",
+        read: false,
+      },
+      {
+        id: "e2",
+        sender: "newsletter@techupdates.com",
+        subject: "Weekly Tech News Digest",
+        body: "Hi there,\n\nWelcome to your weekly dose of tech news! This week, we cover the latest advancements in AI, breakthroughs in quantum computing, and the new smartphone releases. Read more on our blog.\n\nStay curious,\nTech Updates Team",
+        date: "2025-07-19",
+        read: true,
+      },
+      {
+        id: "e3",
+        sender: "colleague@work.com",
+        subject: "Meeting follow-up: Project Alpha",
+        body: "Hi Team,\n\nFollowing up on our meeting yesterday regarding Project Alpha. Please ensure all tasks assigned are updated in the project management tool by end of day tomorrow. Let me know if you have any blockers.\n\nThanks,\nYour Colleague",
+        date: "2025-07-18",
+        read: false,
+      },
+      {
+        id: "e4",
+        sender: "marketing@offers.com",
+        subject: "Exclusive Discount Just For You!",
+        body: "Hello!\n\nWe're excited to offer you an exclusive 20% discount on all our premium products for a limited time. Use code \"SAVE20\" at checkout. Don't miss out!\n\nShop now,\nOffers Team",
+        date: "2025-07-17",
+        read: true,
+      },
+    ];
+    setEmails(mockEmails);
+  }, []); // Empty dependency array ensures this runs only once on mount
 
-  const handleEmailSelect = (email: Email) => {
+  // Function to handle selecting an email from the list
+  const handleEmailSelect = (email) => {
     setSelectedEmail(email);
-    setAiResponse("");
-    setEmails((prev) => prev.map((e) => (e.id === email.id ? { ...e, read: true } : e)));
+    setAiResponse(""); // Clear previous AI response
+    // Mark email as read
+    setEmails((prevEmails) => prevEmails.map((e) => (e.id === email.id ? { ...e, read: true } : e)));
   };
 
-  const handleSummarize = async () => {
-    if (!selectedEmail) return;
-    setIsLoading(true);
+  // Function to call the Gemini API for text generation (e.g., summary, draft)
+  const callGeminiApi = async (prompt) => {
+    setIsLoading(true); // Show loading indicator
+    setAiResponse(""); // Clear previous AI response
+    setMessage(""); // Clear any previous messages
+
     try {
-      const summary = await summarizeEmail(keycloak.token!, selectedEmail.body);
-      setAiResponse(summary);
-    } catch (err: unknown) {
-      setAiResponse("Failed to summarize: " + (err instanceof Error ? err.message : String(err)));
+      const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+      const payload = { contents: chatHistory };
+      const apiKey = ""; // API key is provided by the Canvas environment
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      // Check if the response structure is as expected
+      if (
+        result.candidates &&
+        result.candidates.length > 0 &&
+        result.candidates[0].content &&
+        result.candidates[0].content.parts &&
+        result.candidates[0].content.parts.length > 0
+      ) {
+        const text = result.candidates[0].content.parts[0].text;
+        setAiResponse(text); // Set the AI-generated response
+      } else {
+        setAiResponse("No AI response generated. Please try again.");
+        console.error("Unexpected API response structure:", result);
+      }
+    } catch (error) {
+      console.error("Error calling Gemini API:", error);
+      setAiResponse(`Failed to get AI response: ${error.message}. Please try again.`);
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Hide loading indicator
     }
   };
 
-  const handleDraftReply = async () => {
-    if (!selectedEmail) return;
-    setIsLoading(true);
-    try {
-      const draft = await draftReply(keycloak.token!, selectedEmail);
-      setAiResponse(draft);
-    } catch (err: unknown) {
-      setAiResponse("Failed to draft reply: " + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setIsLoading(false);
+  // Function to handle summarizing the selected email
+  const handleSummarize = () => {
+    if (selectedEmail) {
+      const prompt = `Summarize the following email concisely:\n\n${selectedEmail.body}`;
+      callGeminiApi(prompt);
     }
   };
 
-  const handleSendEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Function to handle drafting a reply to the selected email
+  const handleDraftReply = () => {
+    if (selectedEmail) {
+      const prompt = `Draft a polite and professional reply to the following email. Keep it brief and acknowledge the sender's points:\n\nSender: ${selectedEmail.sender}\nSubject: ${selectedEmail.subject}\nBody:\n${selectedEmail.body}`;
+      callGeminiApi(prompt);
+    }
+  };
+
+  // Function to handle sending a new email (simulated)
+  const handleSendEmail = (e) => {
+    e.preventDefault(); // Prevent default form submission
+
+    // Basic validation
     if (!composeTo || !composeSubject || !composeBody) {
-      setMessage("Please fill in all fields.");
+      setMessage("Please fill in all fields (To, Subject, Body).");
       return;
     }
-    setIsLoading(true);
-    try {
-      const newEmail = await sendEmail(keycloak.token!, {
-        sender: keycloak.tokenParsed?.email || "me",
-        to: composeTo,
-        subject: composeSubject,
-        body: composeBody,
-        type: "sent",
-      });
-      setEmails((prev) => [...prev, newEmail]);
-      setComposeTo("");
-      setComposeSubject("");
-      setComposeBody("");
-      setComposeMode(false);
-      setSelectedEmail(newEmail);
-      setMessage("Email sent!");
-      setTimeout(() => setMessage(""), 3000);
-    } catch (err: unknown) {
-      setMessage("Failed to send email: " + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setIsLoading(false);
-    }
+
+    // Simulate sending the email
+    const newEmail = {
+      id: `e${emails.length + 1}`, // Simple unique ID
+      sender: "me@example.com", // Assuming "me" as the sender
+      to: composeTo,
+      subject: composeSubject,
+      body: composeBody,
+      date: new Date().toISOString().split("T")[0], // Current date
+      read: true, // Sent emails are considered read
+      type: "sent", // Mark as sent
+    };
+
+    // Add the new email to the list (for display purposes, not actual sending)
+    setEmails((prevEmails) => [...prevEmails, newEmail]);
+
+    // Reset compose form fields
+    setComposeTo("");
+    setComposeSubject("");
+    setComposeBody("");
+    setComposeMode(false); // Go back to main view
+    setSelectedEmail(newEmail); // Select the newly sent email
+    setMessage("Email sent successfully!"); // Display success message
+
+    // Clear message after a few seconds
+    setTimeout(() => setMessage(""), 3000);
   };
 
-  const formatEmailBody = (text: string) =>
-    text.split("\n").map((line, i) => (
-      <React.Fragment key={i}>
+  // Helper function to format email body for display
+  const formatEmailBody = (text) => {
+    if (!text) return null;
+    return text.split("\n").map((line, index) => (
+      <React.Fragment key={index}>
         {line}
         <br />
       </React.Fragment>
     ));
-
-  if (!initialized) return <div>Loading...</div>;
-
-  if (!keycloak.authenticated) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-100">
-        <button
-          onClick={() => keycloak.login()}
-          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-full shadow-md transition duration-300 ease-in-out text-xl"
-        >
-          Login
-        </button>
-      </div>
-    );
-  }
+  };
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans text-gray-800">
@@ -162,9 +229,10 @@ const App: React.FC = () => {
                     d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m14 0v7a2 2 0 01-2 2H6a2 2 0 01-2-2v-7m14 0h-2M4 13h2m8 0h.01M12 13h.01"
                   ></path>
                 </svg>
-                Inbox ({emails.filter((e) => !e.read && (!e.type || e.type === "inbox")).length})
+                Inbox ({emails.filter((e) => !e.read && !e.type).length})
               </a>
             </li>
+            {/* Add more navigation items if needed, e.g., Sent, Drafts */}
             <li className="mb-2">
               <a
                 href="#"
@@ -235,7 +303,9 @@ const App: React.FC = () => {
             <span className="block sm:inline">{message}</span>
           </div>
         )}
+
         {composeMode ? (
+          // Compose Email View
           <div className="bg-white p-6 rounded-xl shadow-lg flex-grow">
             <h2 className="text-2xl font-semibold text-gray-800 mb-6">New Message</h2>
             <form onSubmit={handleSendEmail}>
@@ -271,7 +341,7 @@ const App: React.FC = () => {
                 </label>
                 <textarea
                   id="body"
-                  rows={10}
+                  rows="10"
                   className="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
                   value={composeBody}
                   onChange={(e) => setComposeBody(e.target.value)}
@@ -289,7 +359,6 @@ const App: React.FC = () => {
                 <button
                   type="submit"
                   className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-full shadow-md transition duration-300 ease-in-out"
-                  disabled={isLoading}
                 >
                   Send
                 </button>
@@ -338,18 +407,21 @@ const App: React.FC = () => {
                 </ul>
               )}
             </div>
+
             {/* Email Detail Pane */}
             <div className="w-2/3 bg-white p-6 rounded-xl shadow-lg flex flex-col">
               {selectedEmail ? (
                 <>
                   <h2 className="text-2xl font-semibold text-gray-800 mb-2">{selectedEmail.subject}</h2>
                   <div className="text-gray-600 text-sm mb-4">
-                    From: <span className="font-medium">{selectedEmail.sender}</span>
+                    From: <span className="font-medium">{selectedEmail.sender}</span>{" "}
                     <span className="ml-4">Date: {selectedEmail.date}</span>
                   </div>
                   <div className="prose text-gray-800 flex-grow overflow-y-auto mb-6">
                     {formatEmailBody(selectedEmail.body)}
                   </div>
+
+                  {/* AI Actions */}
                   <div className="flex space-x-4 mb-6">
                     <button
                       onClick={handleSummarize}
@@ -368,6 +440,8 @@ const App: React.FC = () => {
                       Draft Reply
                     </button>
                   </div>
+
+                  {/* AI Response Display */}
                   {aiResponse && (
                     <div className="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-lg mt-4">
                       <h3 className="font-semibold mb-2">AI Suggestion:</h3>

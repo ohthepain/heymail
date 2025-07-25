@@ -1,0 +1,21 @@
+version: '3.8'
+services:
+  backend:
+    build: ./heyserv
+    container_name: heyserv-backend
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./heyserv/.env
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./heymail
+      dockerfile: Dockerfile
+    container_name: heymail-frontend
+    working_dir: /app
+    command: sh -c "npm install && npm run build && npm run preview -- --host 0.0.0.0 --port 5173"
+    ports:
+      - "5173:5173"
+    restart: unless-stopped 
